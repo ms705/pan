@@ -14,7 +14,7 @@ fn main() {
 
     println!("\nWelcome to Pan, your interactive Soup migration shell!\n");
 
-    if let Err(_) = rl.load_history("history.txt") {
+    if let Err(_) = rl.load_history(".pan_history") {
         println!("No previous history.");
     }
 
@@ -66,5 +66,5 @@ fn main() {
             }
         }
     }
-    rl.save_history("history.txt").unwrap();
+    rl.save_history(".pan_history").unwrap();
 }
