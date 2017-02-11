@@ -6,6 +6,7 @@ extern crate slog_term;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
+use slog::{Level, LevelFilter};
 use slog::DrainExt;
 
 fn main() {
@@ -19,7 +20,9 @@ fn main() {
     }
 
     let mut g = distributary::Blender::new();
-    g.log_with(slog::Logger::root(slog_term::streamer().full().build().fuse(), None));
+    g.log_with(slog::Logger::root(LevelFilter::new(slog_term::streamer().build().fuse(),
+                                                   Level::Info),
+                                  None));
 
     let mut current_recipe = distributary::Recipe::blank();
 
