@@ -4,7 +4,7 @@ version = "0.0.1"
 authors = ["Malte Schwarzkopf <malte@csail.mit.edu>"]
 
 [dependencies]
-distributary = { git = "https://github.com/mit-pdos/distributary", branch = "recipes" }
+distributary = { git = "https://github.com/mit-pdos/distributary" }
 rustyline = "1.0"
 slog = "1.5.2"
 slog-term = "1.5.0"
