@@ -24,7 +24,7 @@ fn main() {
                                                    Level::Info),
                                   None));
 
-    let mut current_recipe = distributary::Recipe::blank();
+    let mut current_recipe = distributary::Recipe::blank(None);
 
     loop {
         let readline = rl.readline("Pan> ");
@@ -38,7 +38,7 @@ fn main() {
                 current_recipe = match current_recipe.extend(&line) {
                     Ok(mut new_recipe) => {
                         let mut mig = g.start_migration();
-                        match new_recipe.activate(&mut mig) {
+                        match new_recipe.activate(&mut mig, false) {
                             Ok(_) => {
                                 mig.commit();
                                 println!("\n");
