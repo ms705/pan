@@ -1,3 +1,4 @@
+extern crate clap;
 extern crate distributary;
 extern crate nom_sql;
 extern crate rustyline;
@@ -12,6 +13,22 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
 fn main() {
+    use clap::{Arg, App};
+    use std::io::Read;
+    use std::fs::File;
+
+    let matches = App::new("pan")
+        .version("0.0.1")
+        .about("Interactive Soup shell.")
+        .arg(Arg::with_name("recipe")
+                 .short("r")
+                 .long("recipe")
+                 .takes_value(true)
+                 .help("Recipe file to start from."))
+        .get_matches();
+
+    let start_recipe_file = matches.value_of("recipe");
+
     // `()` means no completer is required
     let mut rl = Editor::<()>::new();
 
@@ -26,6 +43,35 @@ fn main() {
     g.log_with(log.clone());
 
     let mut backend = Backend::new(g, distributary::Recipe::blank(None));
+
+    match start_recipe_file {
+        None => (),
+        Some(rf) => {
+            let mut f = match File::open(rf) {
+                Ok(f) => f,
+                Err(e) => {
+                    error!(log, "Failed to open initial recipe: {}", e);
+                    return;
+                }
+            };
+            let mut s = String::new();
+            match f.read_to_string(&mut s) {
+                Ok(_) => {
+                    match backend.migrate(&s) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            error!(log, "Failed to apply initial recipe: {}", e);
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!(log, "Failed to read initial recipe: {}", e);
+                    return;
+                }
+            }
+        }
+    }
 
     let do_migrate = |backend: &mut Backend, line: &str| match backend.migrate(line) {
         Ok(_) => {
