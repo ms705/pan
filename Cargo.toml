@@ -7,5 +7,5 @@ authors = ["Malte Schwarzkopf <malte@csail.mit.edu>"]
 distributary = { git = "https://github.com/mit-pdos/distributary" }
 nom_sql = { git = "https://github.com/ms705/nom-sql.git", rev = "aafa7ad49617aca9928dc09ec324f13bd8081ff7" }
 rustyline = "1.0"
-slog = "1.5.2"
-slog-term = "1.5.0"
+slog = "2.0.2"
+slog-term = "2.0.0"

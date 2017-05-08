@@ -3,7 +3,6 @@ extern crate nom_sql;
 extern crate rustyline;
 #[macro_use]
 extern crate slog;
-extern crate slog_term;
 
 mod backend;
 
@@ -11,8 +10,6 @@ use backend::Backend;
 use nom_sql::SqlQuery;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use slog::{Level, LevelFilter};
-use slog::DrainExt;
 
 fn main() {
     // `()` means no completer is required
@@ -25,9 +22,7 @@ fn main() {
     }
 
     let mut g = distributary::Blender::new();
-    let log = slog::Logger::root(LevelFilter::new(slog_term::streamer().build().fuse(),
-                                                  Level::Info),
-                                 None);
+    let log = distributary::logger_pls();
     g.log_with(log.clone());
 
     let mut backend = Backend::new(g, distributary::Recipe::blank(None));
