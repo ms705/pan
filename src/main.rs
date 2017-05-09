@@ -8,7 +8,8 @@ extern crate slog;
 mod backend;
 
 use backend::Backend;
-use nom_sql::SqlQuery;
+use distributary::DataType;
+use nom_sql::{Literal, SqlQuery};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
@@ -108,7 +109,12 @@ fn main() {
                                 match backend.put(&iq.table.name,
                                                   values
                                                       .into_iter()
-                                                      .map(|v| v.into())
+                                                      .map(|v| match v {
+                                                               Literal::String(s) => s.into(),
+                                                               Literal::Integer(i) => i.into(),
+                                                               Literal::Null => DataType::None,
+                                                               _ => unimplemented!(),
+                                                           })
                                                       .collect::<Vec<_>>()
                                                       .as_slice()) {
                                     Ok(_) => info!(log, "Inserted 1 record.\n"),
