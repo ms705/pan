@@ -22,6 +22,63 @@ fn make_logger(level: slog::Level) -> slog::Logger {
     Logger::root(Mutex::new(term_full()).filter_level(level).fuse(), o!())
 }
 
+fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result<(), String> {
+
+    let do_migrate = |backend: &mut Backend, line: &str| match backend.migrate(line) {
+        Ok(_) => {
+            println!("\n");
+        }
+        Err(e) => {
+            error!(log, "{}", e);
+        }
+    };
+
+    match nom_sql::parse_query(line) {
+        Ok(q) => {
+            match q {
+                SqlQuery::Insert(iq) => {
+                    // if this is an INSERT query, we want to execute it using
+                    // the appropriate mutator
+                    let (_, values): (Vec<_>, Vec<_>) = iq.fields.into_iter().unzip();
+                    match backend.put(&iq.table.name,
+                                      values
+                                          .into_iter()
+                                          .map(|v| match v {
+                                                   Literal::String(s) => s.into(),
+                                                   Literal::Integer(i) => i.into(),
+                                                   Literal::Null => DataType::None,
+                                                   _ => unimplemented!(),
+                                               })
+                                          .collect::<Vec<_>>()
+                                          .as_slice()) {
+                        Ok(_) => {
+                            info!(log, "Inserted 1 record.\n");
+                            Ok(())
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+                SqlQuery::CreateTable(_) => {
+                    // only need to do a migration to install the new table
+                    do_migrate(backend, line);
+
+                    Ok(())
+                }
+                SqlQuery::Select(_) => {
+                    // first do a migration to add the query (may be a no-op if we can reuse
+                    // existing queries)
+                    do_migrate(backend, line);
+
+                    // if not a parameterized query, execute
+
+                    Ok(())
+                }
+            }
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 fn main() {
     use clap::{Arg, App};
     use std::io::Read;
@@ -83,15 +140,6 @@ fn main() {
         }
     }
 
-    let do_migrate = |backend: &mut Backend, line: &str| match backend.migrate(line) {
-        Ok(_) => {
-            println!("\n");
-        }
-        Err(e) => {
-            error!(log, "{}", e);
-        }
-    };
-
     loop {
         let readline = rl.readline("Pan> ");
         match readline {
@@ -108,42 +156,12 @@ fn main() {
                     continue;
                 }
 
-                match nom_sql::parse_query(&line) {
-                    Ok(q) => {
-                        match q {
-                            SqlQuery::Insert(iq) => {
-                                // if this is an INSERT query, we want to execute it using
-                                // the appropriate mutator
-                                let (_, values): (Vec<_>, Vec<_>) = iq.fields.into_iter().unzip();
-                                match backend.put(&iq.table.name,
-                                                  values
-                                                      .into_iter()
-                                                      .map(|v| match v {
-                                                               Literal::String(s) => s.into(),
-                                                               Literal::Integer(i) => i.into(),
-                                                               Literal::Null => DataType::None,
-                                                               _ => unimplemented!(),
-                                                           })
-                                                      .collect::<Vec<_>>()
-                                                      .as_slice()) {
-                                    Ok(_) => info!(log, "Inserted 1 record.\n"),
-                                    Err(e) => {
-                                        error!(log, "{}", e);
-                                    }
-                                }
-                            }
-                            SqlQuery::CreateTable(_) => do_migrate(&mut backend, &line),
-                            SqlQuery::Select(_) => {
-                                do_migrate(&mut backend, &line);
-                                // if not a parameterized query, execute
-                            }
-                        }
-                    }
+                match handle_query(&mut backend, &line, &log) {
+                    Ok(_) => (),
                     Err(e) => {
                         error!(log, "{}", e);
                     }
                 }
-
             }
             Err(ReadlineError::Interrupted) => {
                 println!("^C");
