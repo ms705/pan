@@ -52,7 +52,7 @@ fn main() {
     let log = make_logger(slog::Level::Info);
     g.log_with(log.clone());
 
-    let mut backend = Backend::new(g, distributary::Recipe::blank(None));
+    let mut backend = Backend::new(g, distributary::Recipe::blank(Some(log.clone())));
 
     match start_recipe_file {
         None => (),
