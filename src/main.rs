@@ -4,6 +4,7 @@ extern crate nom_sql;
 extern crate rustyline;
 #[macro_use]
 extern crate slog;
+extern crate slog_term;
 
 mod backend;
 
@@ -12,11 +13,21 @@ use distributary::DataType;
 use nom_sql::{Literal, SqlQuery};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use slog::Level;
+
+fn make_logger(level: slog::Level) -> slog::Logger {
+    use slog::Drain;
+    use slog::Logger;
+    use slog_term::term_full;
+    use std::sync::Mutex;
+    Logger::root(Mutex::new(term_full()).filter_level(level).fuse(), o!())
+}
 
 fn main() {
     use clap::{Arg, App};
     use std::io::Read;
     use std::fs::File;
+    use slog::Drain;
 
     let matches = App::new("pan")
         .version("0.0.1")
@@ -40,7 +51,7 @@ fn main() {
     }
 
     let mut g = distributary::Blender::new();
-    let log = distributary::logger_pls();
+    let log = make_logger(slog::Level::Info);
     g.log_with(log.clone());
 
     let mut backend = Backend::new(g, distributary::Recipe::blank(None));
