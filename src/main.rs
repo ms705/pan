@@ -13,7 +13,6 @@ use distributary::DataType;
 use nom_sql::{Literal, SqlQuery};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
-use slog::Level;
 
 fn make_logger(level: slog::Level) -> slog::Logger {
     use slog::Drain;
@@ -27,7 +26,6 @@ fn main() {
     use clap::{Arg, App};
     use std::io::Read;
     use std::fs::File;
-    use slog::Drain;
 
     let matches = App::new("pan")
         .version("0.0.1")
