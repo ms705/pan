@@ -171,7 +171,7 @@ fn main() {
                 break;
             }
             Err(err) => {
-                error!(log, "{:?}", err);
+                error!(log, "{}", err);
                 break;
             }
         }
