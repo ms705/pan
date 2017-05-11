@@ -9,7 +9,7 @@ extern crate slog_term;
 mod backend;
 
 use backend::Backend;
-use distributary::{ActivationResult, DataType};
+use distributary::DataType;
 use nom_sql::{ConditionBase, ConditionExpression, Literal, SqlQuery};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -47,16 +47,11 @@ fn extract_query_parameters(wc: ConditionExpression) -> Vec<String> {
     params
 }
 
-fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result<(), String> {
-
-    let do_migrate = |backend: &mut Backend, line: &str| -> Result<ActivationResult, String> {
-        backend
-            .migrate(line)
-            .map(|act_res| {
-                     println!("\n");
-                     act_res
-                 })
-    };
+fn handle_query(backend: &mut Backend,
+                line: &str,
+                log: &slog::Logger,
+                quiet: bool)
+                -> Result<(), String> {
 
     match nom_sql::parse_query(line) {
         Ok(q) => {
@@ -85,12 +80,18 @@ fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result
                 }
                 SqlQuery::CreateTable(_) => {
                     // only need to do a migration to install the new table
-                    do_migrate(backend, line).map(|_| ())
+                    match backend.migrate(line) {
+                        Ok(_) => {
+                            print!("\n");
+                            Ok(())
+                        }
+                        Err(e) => Err(e),
+                    }
                 }
                 SqlQuery::Select(sq) => {
                     // first do a migration to add the query (may be a no-op if we can reuse
                     // existing queries)
-                    match do_migrate(backend, line) {
+                    match backend.migrate(line) {
                         Ok(act_res) => {
                             let params = match sq.where_clause {
                                 None => vec![],
@@ -114,7 +115,11 @@ fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result
                                                          .collect::<Vec<_>>()
                                                          .join(", "));
                                         }
-                                        println!("\nQuery returned {} rows.\n", count);
+                                        if !quiet {
+                                            println!("\nQuery returned {} rows.\n", count);
+                                        } else {
+                                            print!("\n");
+                                        }
                                     }
                                     Err(e) => return Err(e),
                                 }
@@ -147,10 +152,21 @@ fn main() {
         .arg(Arg::with_name("nopartial")
                  .long("no-partial-materialization")
                  .help("Disable partial materialization."))
+        .arg(Arg::with_name("quiet")
+                 .short("q")
+                 .long("quiet")
+                 .help("Minimal logging."))
+        .arg(Arg::with_name("verbose")
+                 .short("v")
+                 .long("verbose")
+                 .conflicts_with("quiet")
+                 .help("Verbose output."))
         .get_matches();
 
     let start_recipe_file = matches.value_of("recipe");
     let partial = !matches.is_present("nopartial");
+    let quiet = matches.is_present("quiet");
+    let verbose = matches.is_present("verbose");
 
     // `()` means no completer is required
     let mut rl = Editor::<()>::new();
@@ -162,7 +178,13 @@ fn main() {
     }
 
     let mut g = distributary::Blender::new();
-    let log = make_logger(slog::Level::Info);
+    let log = if quiet {
+        make_logger(slog::Level::Error)
+    } else if verbose {
+        make_logger(slog::Level::Debug)
+    } else {
+        make_logger(slog::Level::Info)
+    };
     g.log_with(log.clone());
 
     if !partial {
@@ -216,7 +238,7 @@ fn main() {
                     continue;
                 }
 
-                match handle_query(&mut backend, &line, &log) {
+                match handle_query(&mut backend, &line, &log, quiet) {
                     Ok(_) => (),
                     Err(e) => {
                         error!(log, "{}", e);
