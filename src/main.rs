@@ -9,8 +9,8 @@ extern crate slog_term;
 mod backend;
 
 use backend::Backend;
-use distributary::DataType;
-use nom_sql::{Literal, SqlQuery};
+use distributary::{ActivationResult, DataType};
+use nom_sql::{ConditionBase, ConditionExpression, Literal, SqlQuery};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
@@ -22,15 +22,40 @@ fn make_logger(level: slog::Level) -> slog::Logger {
     Logger::root(Mutex::new(term_full()).filter_level(level).fuse(), o!())
 }
 
+fn extract_query_parameters(wc: ConditionExpression) -> Vec<String> {
+    let mut params = vec![];
+    match wc {
+        ConditionExpression::LogicalOp(ct) => {
+            params.extend(extract_query_parameters(*ct.left));
+            params.extend(extract_query_parameters(*ct.right));
+        }
+        ConditionExpression::ComparisonOp(ct) => {
+            match *ct.right {
+                ConditionExpression::Base(ConditionBase::Placeholder) => {
+                    match *ct.left {
+                        ConditionExpression::Base(ConditionBase::Field(f)) => {
+                            params.push(f.name);
+                        }
+                        _ => (),
+                    }
+                }
+                _ => (),
+            }
+        }
+        _ => panic!(),
+    }
+    params
+}
+
 fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result<(), String> {
 
-    let do_migrate = |backend: &mut Backend, line: &str| match backend.migrate(line) {
-        Ok(_) => {
-            println!("\n");
-        }
-        Err(e) => {
-            error!(log, "{}", e);
-        }
+    let do_migrate = |backend: &mut Backend, line: &str| -> Result<ActivationResult, String> {
+        backend
+            .migrate(line)
+            .map(|act_res| {
+                     println!("\n");
+                     act_res
+                 })
     };
 
     match nom_sql::parse_query(line) {
@@ -52,7 +77,7 @@ fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result
                                           .collect::<Vec<_>>()
                                           .as_slice()) {
                         Ok(_) => {
-                            info!(log, "Inserted 1 record.\n");
+                            info!(log, "Inserted 1 record into \"{}\".\n", iq.table.name);
                             Ok(())
                         }
                         Err(e) => Err(e),
@@ -60,16 +85,43 @@ fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result
                 }
                 SqlQuery::CreateTable(_) => {
                     // only need to do a migration to install the new table
-                    do_migrate(backend, line);
-
-                    Ok(())
+                    do_migrate(backend, line).map(|_| ())
                 }
-                SqlQuery::Select(_) => {
+                SqlQuery::Select(sq) => {
                     // first do a migration to add the query (may be a no-op if we can reuse
                     // existing queries)
-                    do_migrate(backend, line);
+                    match do_migrate(backend, line) {
+                        Ok(act_res) => {
+                            let params = match sq.where_clause {
+                                None => vec![],
+                                Some(wc) => extract_query_parameters(wc),
+                            };
 
-                    // if not a parameterized query, execute
+                            for (t, _) in act_res.new_nodes {
+                                info!(log, "Added new query {}({}).\n", t, params.join(", "));
+
+                                // if not a parameterized query, execute
+                                // XXX(malte): also execute if the query already existed and wasn't
+                                // added by the migration!
+                                // XXX(malte): handle parameterized queries
+                                match backend.get(&t, DataType::BigInt(0)) {
+                                    Ok(qres) => {
+                                        let count = qres.len();
+                                        for r in qres {
+                                            println!("{}",
+                                                     r.into_iter()
+                                                         .map(|c| format!("{}", c))
+                                                         .collect::<Vec<_>>()
+                                                         .join(", "));
+                                        }
+                                        println!("\nQuery returned {} rows.\n", count);
+                                    }
+                                    Err(e) => return Err(e),
+                                }
+                            }
+                        }
+                        Err(e) => return Err(e),
+                    }
 
                     Ok(())
                 }
@@ -108,6 +160,7 @@ fn main() {
     let mut g = distributary::Blender::new();
     let log = make_logger(slog::Level::Info);
     g.log_with(log.clone());
+    //g.disable_partial();
 
     let mut backend = Backend::new(g, distributary::Recipe::blank(Some(log.clone())));
 

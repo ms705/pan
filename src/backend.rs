@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use distributary::{Blender, DataType, Mutator, Recipe};
+use distributary::{ActivationResult, Blender, DataType, Mutator, Recipe};
 
 type Datas = Vec<Vec<DataType>>;
 type Getter = Box<Fn(&DataType, bool) -> Result<Datas, ()> + Send>;
@@ -21,17 +21,17 @@ impl Backend {
         }
     }
 
-    pub fn migrate(&mut self, line: &str) -> Result<(), String> {
+    pub fn migrate(&mut self, line: &str) -> Result<ActivationResult, String> {
         let prev_recipe = self.recipe.clone();
         // try to add query to recipe
         match self.recipe.take().unwrap().extend(line) {
             Ok(mut new_recipe) => {
                 let mut mig = self.soup.start_migration();
                 match new_recipe.activate(&mut mig, false) {
-                    Ok(_) => {
+                    Ok(act_res) => {
                         mig.commit();
                         self.recipe = Some(new_recipe);
-                        Ok(())
+                        Ok(act_res)
                     }
                     Err(e) => {
                         self.recipe = prev_recipe;
