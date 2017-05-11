@@ -144,9 +144,13 @@ fn main() {
                  .long("recipe")
                  .takes_value(true)
                  .help("Recipe file to start from."))
+        .arg(Arg::with_name("nopartial")
+                 .long("no-partial-materialization")
+                 .help("Disable partial materialization."))
         .get_matches();
 
     let start_recipe_file = matches.value_of("recipe");
+    let partial = !matches.is_present("nopartial");
 
     // `()` means no completer is required
     let mut rl = Editor::<()>::new();
@@ -160,7 +164,10 @@ fn main() {
     let mut g = distributary::Blender::new();
     let log = make_logger(slog::Level::Info);
     g.log_with(log.clone());
-    //g.disable_partial();
+
+    if !partial {
+        g.disable_partial();
+    }
 
     let mut backend = Backend::new(g, distributary::Recipe::blank(Some(log.clone())));
 
