@@ -1,5 +1,9 @@
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::thread;
+
 use distributary::{ActivationResult, Blender, DataType, Mutator, Recipe};
+use distributary::web;
 
 type Datas = Vec<Vec<DataType>>;
 type Getter = Box<Fn(&DataType, bool) -> Result<Datas, ()> + Send>;
@@ -8,11 +12,15 @@ pub struct Backend {
     getters: HashMap<String, Getter>,
     mutators: HashMap<String, Mutator>,
     recipe: Option<Recipe>,
-    pub soup: Blender,
+    pub soup: Arc<Mutex<Blender>>,
 }
 
 impl Backend {
     pub fn new(soup: Blender, recipe: Recipe) -> Backend {
+        let soup = Arc::new(Mutex::new(soup));
+        let soup2 = soup.clone();
+        thread::spawn(||web::run(soup2));
+
         Backend {
             getters: HashMap::default(),
             mutators: HashMap::default(),
@@ -26,7 +34,8 @@ impl Backend {
         // try to add query to recipe
         match self.recipe.take().unwrap().extend(line) {
             Ok(mut new_recipe) => {
-                let mut mig = self.soup.start_migration();
+                let mut soup = self.soup.lock().unwrap();
+                let mut mig = soup.start_migration();
                 match new_recipe.activate(&mut mig, false) {
                     Ok(act_res) => {
                         mig.commit();
@@ -47,7 +56,9 @@ impl Backend {
         let mtr = self.mutators
             .entry(String::from(kind))
             .or_insert(self.soup
-                           .get_mutator(self.recipe.as_ref().unwrap().node_addr_for(kind)?));
+                       .lock()
+                       .unwrap()
+                       .get_mutator(self.recipe.as_ref().unwrap().node_addr_for(kind)?));
 
         mtr.put(data);
         Ok(())
@@ -59,6 +70,8 @@ impl Backend {
         let get_fn = self.getters
             .entry(String::from(kind))
             .or_insert(self.soup
+                           .lock()
+                           .unwrap()
                            .get_getter(self.recipe.as_ref().unwrap().node_addr_for(kind)?)
                            .unwrap());
 

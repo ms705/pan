@@ -212,7 +212,8 @@ fn main() {
 
                 // special, Soup-only SHOW GRAPH query
                 if line.trim().to_lowercase() == "show graph;" {
-                    println!("\n{}\n", backend.soup);
+                    let soup = backend.soup.lock().unwrap();
+                    println!("\n{}\n", *soup);
                     continue;
                 }
 
