@@ -48,7 +48,7 @@ fn extract_query_parameters(wc: ConditionExpression) -> Vec<String> {
     params
 }
 
-fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result<(), String> {
+fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Result<(), String> {
 
     let do_migrate = |backend: &mut Backend, line: &str| -> Result<ActivationResult, String> {
         backend
@@ -59,12 +59,19 @@ fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result
                  })
     };
 
+    let name = line.find(':')
+        .map(|i| {
+                 let name = line[..i].trim();
+                 line = &line[i + 1..].trim();
+                 name
+             });
+
     match nom_sql::parse_query(line) {
         Ok(q) => {
             match q {
                 SqlQuery::Insert(iq) => {
-    // if this is an INSERT query, we want to execute it using
-    // the appropriate mutator
+                    // if this is an INSERT query, we want to execute it using
+                    // the appropriate mutator
                     let (_, values): (Vec<_>, Vec<_>) = iq.fields.into_iter().unzip();
                     match backend.put(&iq.table.name,
                                       values
@@ -85,12 +92,12 @@ fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result
                     }
                 }
                 SqlQuery::CreateTable(_) => {
-    // only need to do a migration to install the new table
+                    // only need to do a migration to install the new table
                     do_migrate(backend, line).map(|_| ())
                 }
                 SqlQuery::Select(sq) => {
-    // first do a migration to add the query (may be a no-op if we can reuse
-    // existing queries)
+                    // first do a migration to add the query (may be a no-op if we can reuse
+                    // existing queries)
                     match do_migrate(backend, line) {
                         Ok(act_res) => {
                             let params = match sq.where_clause {
@@ -98,13 +105,19 @@ fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result
                                 Some(wc) => extract_query_parameters(wc),
                             };
 
+                            assert!(act_res.new_nodes.len() <= 1);
+
                             for (t, _) in act_res.new_nodes {
                                 info!(log, "Added new query {}({}).\n", t, params.join(", "));
 
-    // if not a parameterized query, execute
-    // XXX(malte): also execute if the query already existed and wasn't
-    // added by the migration!
-    // XXX(malte): handle parameterized queries
+                                if let Some(ref name) = name {
+                                    backend.add_query(name, &t, params.len());
+                                }
+
+                                // if not a parameterized query, execute
+                                // XXX(malte): also execute if the query already existed and wasn't
+                                // added by the migration!
+                                // XXX(malte): handle parameterized queries
                                 match backend.get(&t, DataType::BigInt(0)) {
                                     Ok(qres) => {
                                         let count = qres.len();
@@ -132,6 +145,33 @@ fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result
     }
 }
 
+fn handle_execute(backend: &mut Backend,
+                  s: nom_sql::ExecuteStatement,
+                  log: &slog::Logger)
+                  -> Result<(), String> {
+    let params: Vec<DataType> = s.values.into_iter().map(|l| match l {
+        Literal::Integer(i) => i.into(),
+        Literal::String(s) => s.into(),
+        _ => unimplemented!(),
+    }).collect();
+
+    match backend.execute_query(&s.table.name, &params) {
+        Ok(qres) => {
+            let count = qres.len();
+            for r in qres {
+                println!("{}",
+                         r.into_iter()
+                             .map(|c| format!("{}", c))
+                             .collect::<Vec<_>>()
+                             .join(", "));
+            }
+            println!("\nQuery returned {} rows.\n", count);
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
 fn main() {
     use clap::{Arg, App};
     use std::io::Read;
@@ -147,10 +187,8 @@ fn main() {
                  .help("Recipe file to start from."))
         .arg(Arg::with_name("nopartial")
                  .long("no-partial-materialization")
-             .help("Disable partial materialization."))
-        .arg(Arg::with_name("verbose")
-             .long("verbose")
-        .short("v"))
+                 .help("Disable partial materialization."))
+        .arg(Arg::with_name("verbose").long("verbose").short("v"))
         .get_matches();
 
     let start_recipe_file = matches.value_of("recipe");
@@ -232,7 +270,14 @@ fn main() {
                     continue;
                 }
 
-                match handle_query(&mut backend, &line, &log) {
+                let execute = nom_sql::execute_statement(line.as_bytes());
+                let result = if let nom_sql::IResult::Done(_, e) = execute {
+                    handle_execute(&mut backend, e, &log)
+                } else {
+                    handle_query(&mut backend, &line, &log)
+                };
+
+                match result {
                     Ok(_) => (),
                     Err(e) => {
                         error!(log, "{}", e);

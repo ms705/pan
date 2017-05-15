@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use distributary::{ActivationResult, Blender, DataType, Mutator, Recipe};
+use distributary::{ActivationResult, Blender, DataType, Mutator, Recipe, WriteError};
 use distributary::web;
 
 type Datas = Vec<Vec<DataType>>;
@@ -12,6 +12,7 @@ pub struct Backend {
     getters: HashMap<String, Getter>,
     mutators: HashMap<String, Mutator>,
     recipe: Option<Recipe>,
+    queries: HashMap<String, (String, usize)>,
     pub soup: Arc<Mutex<Blender>>,
 }
 
@@ -25,6 +26,7 @@ impl Backend {
             getters: HashMap::default(),
             mutators: HashMap::default(),
             recipe: Some(recipe),
+            queries: HashMap::default(),
             soup: soup,
         }
     }
@@ -60,8 +62,46 @@ impl Backend {
                        .unwrap()
                        .get_mutator(self.recipe.as_ref().unwrap().node_addr_for(kind)?));
 
-        mtr.put(data);
-        Ok(())
+        mtr.put(data)
+            .map_err(|e| match e {
+                         WriteError::WrongNumberOfColumns { expected, got } => {
+                             format!("Wrong number of columns specified: expected {}, got {}",
+                                     expected,
+                                     got)
+                         }
+                     })
+    }
+
+    pub fn add_query(&mut self, name: &str, kind: &str, num_params: usize) {
+        self.queries.insert(name.into(), (kind.into(), num_params));
+    }
+
+    pub fn execute_query(&mut self, name: &str, params: &[DataType]) -> Result<Datas, String> {
+        if params.len() != 1 {
+            return Err(format!("Only single parameter queries are currently supported"));
+        }
+
+        let (ref kind, nparams) = *match self.queries.get(name) {
+            Some(k) => k,
+            None => return Err(format!("Unrecognized query: \"{}\"", name)),
+        };
+
+        if nparams != params.len() {
+            return Err(format!("Wrong number of values: expected {}, got {}", nparams, params.len()));
+        }
+
+        let get_fn = self.getters
+            .entry(kind.clone())
+            .or_insert(self.soup
+                           .lock()
+                           .unwrap()
+                           .get_getter(self.recipe.as_ref().unwrap().node_addr_for(kind)?)
+                           .unwrap());
+
+        match get_fn(&params[0], true) {
+            Ok(records) => Ok(records),
+            Err(_) => Err(format!("GET for {} failed!", kind)),
+        }
     }
 
     pub fn get<I>(&mut self, kind: &str, key: I) -> Result<Datas, String>
