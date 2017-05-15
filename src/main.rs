@@ -13,6 +13,7 @@ use distributary::{ActivationResult, DataType};
 use nom_sql::{ConditionBase, ConditionExpression, Literal, SqlQuery};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use std::str::FromStr;
 
 fn make_logger(level: slog::Level) -> slog::Logger {
     use slog::Drain;
@@ -62,8 +63,8 @@ fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result
         Ok(q) => {
             match q {
                 SqlQuery::Insert(iq) => {
-                    // if this is an INSERT query, we want to execute it using
-                    // the appropriate mutator
+    // if this is an INSERT query, we want to execute it using
+    // the appropriate mutator
                     let (_, values): (Vec<_>, Vec<_>) = iq.fields.into_iter().unzip();
                     match backend.put(&iq.table.name,
                                       values
@@ -84,12 +85,12 @@ fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result
                     }
                 }
                 SqlQuery::CreateTable(_) => {
-                    // only need to do a migration to install the new table
+    // only need to do a migration to install the new table
                     do_migrate(backend, line).map(|_| ())
                 }
                 SqlQuery::Select(sq) => {
-                    // first do a migration to add the query (may be a no-op if we can reuse
-                    // existing queries)
+    // first do a migration to add the query (may be a no-op if we can reuse
+    // existing queries)
                     match do_migrate(backend, line) {
                         Ok(act_res) => {
                             let params = match sq.where_clause {
@@ -100,10 +101,10 @@ fn handle_query(backend: &mut Backend, line: &str, log: &slog::Logger) -> Result
                             for (t, _) in act_res.new_nodes {
                                 info!(log, "Added new query {}({}).\n", t, params.join(", "));
 
-                                // if not a parameterized query, execute
-                                // XXX(malte): also execute if the query already existed and wasn't
-                                // added by the migration!
-                                // XXX(malte): handle parameterized queries
+    // if not a parameterized query, execute
+    // XXX(malte): also execute if the query already existed and wasn't
+    // added by the migration!
+    // XXX(malte): handle parameterized queries
                                 match backend.get(&t, DataType::BigInt(0)) {
                                     Ok(qres) => {
                                         let count = qres.len();
@@ -146,11 +147,15 @@ fn main() {
                  .help("Recipe file to start from."))
         .arg(Arg::with_name("nopartial")
                  .long("no-partial-materialization")
-                 .help("Disable partial materialization."))
+             .help("Disable partial materialization."))
+        .arg(Arg::with_name("verbose")
+             .long("verbose")
+        .short("v"))
         .get_matches();
 
     let start_recipe_file = matches.value_of("recipe");
     let partial = !matches.is_present("nopartial");
+    let verbose = matches.is_present("verbose");
 
     // `()` means no completer is required
     let mut rl = Editor::<()>::new();
@@ -162,7 +167,12 @@ fn main() {
     }
 
     let mut g = distributary::Blender::new();
-    let log = make_logger(slog::Level::Info);
+    let log = if verbose {
+        make_logger(slog::Level::Info)
+    } else {
+        make_logger(slog::Level::Error)
+    };
+
     g.log_with(log.clone());
 
     if !partial {
@@ -204,10 +214,15 @@ fn main() {
         let readline = rl.readline("Pan> ");
         match readline {
             Ok(line) => {
-                rl.add_history_entry(&line);
+                rl.add_history_entry(line.clone());
 
+                let mut line = String::from_str(line.trim()).unwrap();
                 if line.is_empty() {
                     continue;
+                }
+
+                if line.chars().rev().next().unwrap() != ';' {
+                    line.push(';');
                 }
 
                 // special, Soup-only SHOW GRAPH query
