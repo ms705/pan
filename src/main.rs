@@ -54,7 +54,7 @@ fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Re
         backend
             .migrate(line)
             .map(|act_res| {
-                     println!("\n");
+//                     println!("\n");
                      act_res
                  })
     };
@@ -65,6 +65,10 @@ fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Re
                  line = &line[i + 1..].trim();
                  name
              });
+
+    if name.is_some() && backend.query_exists(name.as_ref().unwrap()) {
+        return Err(format!("Query with name '{}' already exists", name.unwrap()));
+    }
 
     match nom_sql::parse_query(line) {
         Ok(q) => {
@@ -114,24 +118,24 @@ fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Re
                                     backend.add_query(name, &t, params.len());
                                 }
 
-                                // if not a parameterized query, execute
-                                // XXX(malte): also execute if the query already existed and wasn't
-                                // added by the migration!
-                                // XXX(malte): handle parameterized queries
-                                match backend.get(&t, DataType::BigInt(0)) {
-                                    Ok(qres) => {
-                                        let count = qres.len();
-                                        for r in qres {
-                                            println!("{}",
-                                                     r.into_iter()
-                                                         .map(|c| format!("{}", c))
-                                                         .collect::<Vec<_>>()
-                                                         .join(", "));
-                                        }
-                                        println!("\nQuery returned {} rows.\n", count);
-                                    }
-                                    Err(e) => return Err(e),
-                                }
+                                // // if not a parameterized query, execute
+                                // // XXX(malte): also execute if the query already existed and wasn't
+                                // // added by the migration!
+                                // // XXX(malte): handle parameterized queries
+                                // match backend.get(&t, DataType::BigInt(0)) {
+                                //     Ok(qres) => {
+                                //         let count = qres.len();
+                                //         for r in qres {
+                                //             println!("{}",
+                                //                      r.into_iter()
+                                //                          .map(|c| format!("{}", c))
+                                //                          .collect::<Vec<_>>()
+                                //                          .join(", "));
+                                //         }
+                                //         println!("\nQuery returned {} rows.\n", count);
+                                //     }
+                                //     Err(e) => return Err(e),
+                                // }
                             }
                         }
                         Err(e) => return Err(e),
