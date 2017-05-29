@@ -51,20 +51,17 @@ fn extract_query_parameters(wc: ConditionExpression) -> Vec<String> {
 fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Result<(), String> {
 
     let do_migrate = |backend: &mut Backend, line: &str| -> Result<ActivationResult, String> {
-        backend
-            .migrate(line)
-            .map(|act_res| {
-//                     println!("\n");
-                     act_res
-                 })
+        backend.migrate(line).map(|act_res| {
+                                      //                     println!("\n");
+                                      act_res
+                                  })
     };
 
-    let name = line.find(':')
-        .map(|i| {
-                 let name = line[..i].trim();
-                 line = &line[i + 1..].trim();
-                 name
-             });
+    let name = line.find(':').map(|i| {
+                                      let name = line[..i].trim();
+                                      line = &line[i + 1..].trim();
+                                      name
+                                  });
 
     if name.is_some() && backend.query_exists(name.as_ref().unwrap()) {
         return Err(format!("Query with name '{}' already exists", name.unwrap()));
@@ -119,8 +116,8 @@ fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Re
                                 }
 
                                 // // if not a parameterized query, execute
-                                // // XXX(malte): also execute if the query already existed and wasn't
-                                // // added by the migration!
+                                // // XXX(malte): also execute if the query already existed and
+                                // // wasn't added by the migration!
                                 // // XXX(malte): handle parameterized queries
                                 // match backend.get(&t, DataType::BigInt(0)) {
                                 //     Ok(qres) => {
@@ -153,11 +150,14 @@ fn handle_execute(backend: &mut Backend,
                   s: nom_sql::ExecuteStatement,
                   log: &slog::Logger)
                   -> Result<(), String> {
-    let params: Vec<DataType> = s.values.into_iter().map(|l| match l {
-        Literal::Integer(i) => i.into(),
-        Literal::String(s) => s.into(),
-        _ => unimplemented!(),
-    }).collect();
+    let params: Vec<DataType> = s.values
+        .into_iter()
+        .map(|l| match l {
+                 Literal::Integer(i) => i.into(),
+                 Literal::String(s) => s.into(),
+                 _ => unimplemented!(),
+             })
+        .collect();
 
     match backend.execute_query(&s.table.name, &params) {
         Ok(qres) => {

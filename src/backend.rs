@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use distributary::{ActivationResult, Blender, DataType, Mutator, Recipe, WriteError};
+use distributary::{ActivationResult, Blender, DataType, Mutator, Recipe, MutatorError};
 use distributary::web;
 
 type Datas = Vec<Vec<DataType>>;
@@ -20,7 +20,7 @@ impl Backend {
     pub fn new(soup: Blender, recipe: Recipe) -> Backend {
         let soup = Arc::new(Mutex::new(soup));
         let soup2 = soup.clone();
-        thread::spawn(||web::run(soup2));
+        thread::spawn(|| web::run(soup2));
 
         Backend {
             getters: HashMap::default(),
@@ -55,20 +55,22 @@ impl Backend {
     }
 
     pub fn put(&mut self, kind: &str, data: &[DataType]) -> Result<(), String> {
-        let mtr = self.mutators
-            .entry(String::from(kind))
-            .or_insert(self.soup
-                       .lock()
-                       .unwrap()
-                       .get_mutator(self.recipe.as_ref().unwrap().node_addr_for(kind)?));
+        let mtr =
+            self.mutators
+                .entry(String::from(kind))
+                .or_insert(self.soup
+                               .lock()
+                               .unwrap()
+                               .get_mutator(self.recipe.as_ref().unwrap().node_addr_for(kind)?));
 
         mtr.put(data)
             .map_err(|e| match e {
-                         WriteError::WrongNumberOfColumns { expected, got } => {
+                         MutatorError::WrongColumnCount(expected, got) => {
                              format!("Wrong number of columns specified: expected {}, got {}",
                                      expected,
                                      got)
                          }
+                         MutatorError::TransactionFailed => unreachable!(),
                      })
     }
 
@@ -87,7 +89,9 @@ impl Backend {
         };
 
         if nparams != params.len() {
-            return Err(format!("Wrong number of values: expected {}, got {}", nparams, params.len()));
+            return Err(format!("Wrong number of values: expected {}, got {}",
+                               nparams,
+                               params.len()));
         }
 
         let get_fn = self.getters
