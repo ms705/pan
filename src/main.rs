@@ -13,6 +13,7 @@ use distributary::DataType;
 use nom_sql::{ConditionBase, ConditionExpression, Literal, SqlQuery};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use std::str::FromStr;
 
 fn make_logger(level: slog::Level) -> slog::Logger {
     use slog::Drain;
@@ -47,11 +48,16 @@ fn extract_query_parameters(wc: ConditionExpression) -> Vec<String> {
     params
 }
 
-fn handle_query(backend: &mut Backend,
-                line: &str,
-                log: &slog::Logger,
-                quiet: bool)
-                -> Result<(), String> {
+fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Result<(), String> {
+    let name = line.find(':').map(|i| {
+                                      let name = line[..i].trim();
+                                      line = &line[i + 1..].trim();
+                                      name
+                                  });
+
+    if name.is_some() && backend.query_exists(name.as_ref().unwrap()) {
+        return Err(format!("Query with name '{}' already exists", name.unwrap()));
+    }
 
     match nom_sql::parse_query(line) {
         Ok(q) => {
@@ -98,31 +104,33 @@ fn handle_query(backend: &mut Backend,
                                 Some(wc) => extract_query_parameters(wc),
                             };
 
+                            assert!(act_res.new_nodes.len() <= 1);
+
                             for (t, _) in act_res.new_nodes {
                                 info!(log, "Added new query {}({}).\n", t, params.join(", "));
 
-                                // if not a parameterized query, execute
-                                // XXX(malte): also execute if the query already existed and wasn't
-                                // added by the migration!
-                                // XXX(malte): handle parameterized queries
-                                match backend.get(&t, DataType::BigInt(0)) {
-                                    Ok(qres) => {
-                                        let count = qres.len();
-                                        for r in qres {
-                                            println!("{}",
-                                                     r.into_iter()
-                                                         .map(|c| format!("{}", c))
-                                                         .collect::<Vec<_>>()
-                                                         .join(", "));
-                                        }
-                                        if !quiet {
-                                            println!("\nQuery returned {} rows.\n", count);
-                                        } else {
-                                            print!("\n");
-                                        }
-                                    }
-                                    Err(e) => return Err(e),
+                                if let Some(ref name) = name {
+                                    backend.add_query(name, &t, params.len());
                                 }
+
+                                // // if not a parameterized query, execute
+                                // // XXX(malte): also execute if the query already existed and
+                                // // wasn't added by the migration!
+                                // // XXX(malte): handle parameterized queries
+                                // match backend.get(&t, DataType::BigInt(0)) {
+                                //     Ok(qres) => {
+                                //         let count = qres.len();
+                                //         for r in qres {
+                                //             println!("{}",
+                                //                      r.into_iter()
+                                //                          .map(|c| format!("{}", c))
+                                //                          .collect::<Vec<_>>()
+                                //                          .join(", "));
+                                //         }
+                                //         println!("\nQuery returned {} rows.\n", count);
+                                //     }
+                                //     Err(e) => return Err(e),
+                                // }
                             }
                         }
                         Err(e) => return Err(e),
@@ -133,6 +141,33 @@ fn handle_query(backend: &mut Backend,
             }
         }
         Err(e) => Err(e.to_string()),
+    }
+}
+
+fn handle_execute(backend: &mut Backend, s: nom_sql::ExecuteStatement) -> Result<(), String> {
+    let params: Vec<DataType> = s.values
+        .into_iter()
+        .map(|l| match l {
+                 Literal::Integer(i) => i.into(),
+                 Literal::String(s) => s.into(),
+                 _ => unimplemented!(),
+             })
+        .collect();
+
+    match backend.execute_query(&s.table.name, &params) {
+        Ok(qres) => {
+            let count = qres.len();
+            for r in qres {
+                println!("{}",
+                         r.into_iter()
+                             .map(|c| format!("{}", c))
+                             .collect::<Vec<_>>()
+                             .join(", "));
+            }
+            println!("\nQuery returned {} rows.\n", count);
+            Ok(())
+        }
+        Err(e) => Err(e),
     }
 }
 
@@ -152,20 +187,11 @@ fn main() {
         .arg(Arg::with_name("nopartial")
                  .long("no-partial-materialization")
                  .help("Disable partial materialization."))
-        .arg(Arg::with_name("quiet")
-                 .short("q")
-                 .long("quiet")
-                 .help("Minimal logging."))
-        .arg(Arg::with_name("verbose")
-                 .short("v")
-                 .long("verbose")
-                 .conflicts_with("quiet")
-                 .help("Verbose output."))
+        .arg(Arg::with_name("verbose").long("verbose").short("v"))
         .get_matches();
 
     let start_recipe_file = matches.value_of("recipe");
     let partial = !matches.is_present("nopartial");
-    let quiet = matches.is_present("quiet");
     let verbose = matches.is_present("verbose");
 
     // `()` means no completer is required
@@ -178,13 +204,12 @@ fn main() {
     }
 
     let mut g = distributary::Blender::new();
-    let log = if quiet {
-        make_logger(slog::Level::Error)
-    } else if verbose {
-        make_logger(slog::Level::Debug)
-    } else {
+    let log = if verbose {
         make_logger(slog::Level::Info)
+    } else {
+        make_logger(slog::Level::Error)
     };
+
     g.log_with(log.clone());
 
     if !partial {
@@ -226,19 +251,32 @@ fn main() {
         let readline = rl.readline("Pan> ");
         match readline {
             Ok(line) => {
-                rl.add_history_entry(&line);
+                rl.add_history_entry(line.clone());
 
+                let mut line = String::from_str(line.trim()).unwrap();
                 if line.is_empty() {
                     continue;
                 }
 
+                if line.chars().rev().next().unwrap() != ';' {
+                    line.push(';');
+                }
+
                 // special, Soup-only SHOW GRAPH query
                 if line.trim().to_lowercase() == "show graph;" {
-                    println!("\n{}\n", backend.soup);
+                    let soup = backend.soup.lock().unwrap();
+                    println!("\n{}\n", *soup);
                     continue;
                 }
 
-                match handle_query(&mut backend, &line, &log, quiet) {
+                let execute = nom_sql::execute_statement(line.as_bytes());
+                let result = if let nom_sql::IResult::Done(_, e) = execute {
+                    handle_execute(&mut backend, e)
+                } else {
+                    handle_query(&mut backend, &line, &log)
+                };
+
+                match result {
                     Ok(_) => (),
                     Err(e) => {
                         error!(log, "{}", e);

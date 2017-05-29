@@ -6,7 +6,7 @@ authors = ["Malte Schwarzkopf <malte@csail.mit.edu>"]
 [dependencies]
 clap = "2.24.0"
 distributary = { git = "https://github.com/mit-pdos/distributary" }
-nom_sql = { git = "https://github.com/ms705/nom-sql.git", rev = "90c9415691d196d1b281cdf6ca02060ed238afbe" }
-rustyline = "1.0"
+nom_sql = { git = "https://github.com/ms705/nom-sql.git", branch = "execute" }
+rustyline = { git = "https://github.com/fintelia/rustyline", rev = "4503fc622c8d693729e4725ef73c91802e2b1aa7"}
 slog = "2.0.2"
 slog-term = "2.0.0"
