@@ -2,11 +2,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use distributary::{ActivationResult, Blender, DataType, Mutator, Recipe, MutatorError};
+use distributary::{ActivationResult, Blender, DataType, Getter, Mutator, Recipe, MutatorError};
 use distributary::web;
 
 type Datas = Vec<Vec<DataType>>;
-type Getter = Box<Fn(&DataType, bool) -> Result<Datas, ()> + Send>;
 
 pub struct Backend {
     getters: HashMap<String, Getter>,
@@ -94,7 +93,7 @@ impl Backend {
                                params.len()));
         }
 
-        let get_fn = self.getters
+        let getter = self.getters
             .entry(kind.clone())
             .or_insert(self.soup
                            .lock()
@@ -102,7 +101,7 @@ impl Backend {
                            .get_getter(self.recipe.as_ref().unwrap().node_addr_for(kind)?)
                            .unwrap());
 
-        match get_fn(&params[0], true) {
+        match getter.lookup(&params[0], true) {
             Ok(records) => Ok(records),
             Err(_) => Err(format!("GET for {} failed!", kind)),
         }
