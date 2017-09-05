@@ -187,11 +187,15 @@ fn main() {
         .arg(Arg::with_name("nopartial")
                  .long("no-partial-materialization")
                  .help("Disable partial materialization."))
+        .arg(Arg::with_name("noshard")
+                 .long("no-sharding")
+                 .help("Disable sharding"))
         .arg(Arg::with_name("verbose").long("verbose").short("v"))
         .get_matches();
 
     let start_recipe_file = matches.value_of("recipe");
     let partial = !matches.is_present("nopartial");
+    let sharding = !matches.is_present("noshard");
     let verbose = matches.is_present("verbose");
 
     // `()` means no completer is required
@@ -214,6 +218,10 @@ fn main() {
 
     if !partial {
         g.disable_partial();
+    }
+
+    if !sharding {
+        g.disable_sharding();
     }
 
     let mut backend = Backend::new(g, distributary::Recipe::blank(Some(log.clone())));
