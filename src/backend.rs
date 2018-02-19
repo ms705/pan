@@ -39,7 +39,9 @@ impl Backend {
 
     pub fn put(&mut self, kind: &str, data: &[DataType]) -> Result<(), String> {
         let mtr = self.mutators.entry(String::from(kind)).or_insert(self.soup
-            .get_mutator(self.inputs[kind])
+            .get_mutator(*self.inputs
+                .get(kind)
+                .map_or(Err(format!("No table named '{}'", kind)), |m| Ok(m))?)
             .map_err(|e| e.description().to_owned())?);
 
         mtr.put(data).map_err(|e| match e {
@@ -71,9 +73,12 @@ impl Backend {
                                params.len()));
         }
 
+        let ni = self.outputs
+            .get(kind)
+            .map_or(Err(format!("No view named '{}'", kind)), |ni| Ok(ni))?;
         let getter = self.getters.entry(kind.clone()).or_insert(self.soup
-            .get_getter(self.outputs[kind])
-            .map_or(Err(format!("No view named '{}'", kind)), |m| Ok(m))?);
+            .get_getter(*ni)
+            .map_or(Err(format!("View named '{}' is lost", kind)), |g| Ok(g))?);
 
         match getter.lookup(&params[0], true) {
             Ok(records) => Ok(records),
