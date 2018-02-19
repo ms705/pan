@@ -1,76 +1,51 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::collections::{BTreeMap, HashMap};
 
-use distributary::{ActivationResult, Blender, DataType, Getter, Mutator, Recipe, MutatorError};
-use distributary::web;
+use distributary::{ActivationResult, ControllerHandle, DataType, Mutator, MutatorError, NodeIndex,
+                   RemoteGetter, RpcError, ZookeeperAuthority};
 
 type Datas = Vec<Vec<DataType>>;
 
 pub struct Backend {
-    getters: HashMap<String, Getter>,
+    inputs: BTreeMap<String, NodeIndex>,
+    outputs: BTreeMap<String, NodeIndex>,
+    getters: HashMap<String, RemoteGetter>,
     mutators: HashMap<String, Mutator>,
-    recipe: Option<Recipe>,
     queries: HashMap<String, (String, usize)>,
-    pub soup: Arc<Mutex<Blender>>,
+    pub soup: ControllerHandle<ZookeeperAuthority>,
 }
 
 impl Backend {
-    pub fn new(soup: Blender, recipe: Recipe) -> Backend {
-        let soup = Arc::new(Mutex::new(soup));
-        let soup2 = soup.clone();
-        thread::spawn(|| web::run(soup2));
+    pub fn new(mut soup: ControllerHandle<ZookeeperAuthority>) -> Backend {
+        let inputs = soup.inputs();
+        let outputs = soup.outputs();
 
         Backend {
+            inputs: inputs,
+            outputs: outputs,
             getters: HashMap::default(),
             mutators: HashMap::default(),
-            recipe: Some(recipe),
             queries: HashMap::default(),
             soup: soup,
         }
     }
 
-    pub fn migrate(&mut self, line: &str) -> Result<ActivationResult, String> {
-        let prev_recipe = self.recipe.clone();
+    pub fn migrate(&mut self, line: &str) -> Result<ActivationResult, RpcError> {
         // try to add query to recipe
-        match self.recipe.take().unwrap().extend(line) {
-            Ok(mut new_recipe) => {
-                let mut soup = self.soup.lock().unwrap();
-                let mut mig = soup.start_migration();
-                match new_recipe.activate(&mut mig, false) {
-                    Ok(act_res) => {
-                        mig.commit();
-                        self.recipe = Some(new_recipe);
-                        Ok(act_res)
-                    }
-                    Err(e) => {
-                        self.recipe = prev_recipe;
-                        Err(e)
-                    }
-                }
-            }
-            Err(e) => Err(e),
-        }
+        self.soup.extend_recipe(line.to_owned())
     }
 
     pub fn put(&mut self, kind: &str, data: &[DataType]) -> Result<(), String> {
-        let mtr =
-            self.mutators
-                .entry(String::from(kind))
-                .or_insert(self.soup
-                               .lock()
-                               .unwrap()
-                               .get_mutator(self.recipe.as_ref().unwrap().node_addr_for(kind)?));
+        let mtr = self.mutators.entry(String::from(kind)).or_insert(self.soup
+            .get_mutator(self.inputs[kind])
+            .map_err(|e| e.description().to_owned())?);
 
-        mtr.put(data)
-            .map_err(|e| match e {
-                         MutatorError::WrongColumnCount(expected, got) => {
-                             format!("Wrong number of columns specified: expected {}, got {}",
-                                     expected,
-                                     got)
-                         }
-                         MutatorError::TransactionFailed => unreachable!(),
-                     })
+        mtr.put(data).map_err(|e| match e {
+            MutatorError::WrongColumnCount(expected, got) => format!(
+                "Wrong number of columns specified: expected {}, got {}",
+                expected, got
+            ),
+            MutatorError::TransactionFailed => unreachable!(),
+        })
     }
 
     pub fn add_query(&mut self, name: &str, kind: &str, num_params: usize) {
@@ -93,13 +68,9 @@ impl Backend {
                                params.len()));
         }
 
-        let getter = self.getters
-            .entry(kind.clone())
-            .or_insert(self.soup
-                           .lock()
-                           .unwrap()
-                           .get_getter(self.recipe.as_ref().unwrap().node_addr_for(kind)?)
-                           .unwrap());
+        let getter = self.getters.entry(kind.clone()).or_insert(self.soup
+            .get_getter(self.outputs[kind])
+            .map_or(Err(format!("No view named '{}'", kind)), |m| Ok(m))?);
 
         match getter.lookup(&params[0], true) {
             Ok(records) => Ok(records),

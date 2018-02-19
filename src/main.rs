@@ -10,9 +10,11 @@ mod backend;
 
 use backend::Backend;
 use distributary::DataType;
+use distributary::ZookeeperAuthority;
 use nom_sql::{ConditionBase, ConditionExpression, Literal, SqlQuery};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use std::error::Error;
 use std::str::FromStr;
 
 fn make_logger(level: slog::Level) -> slog::Logger {
@@ -91,7 +93,7 @@ fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Re
                             print!("\n");
                             Ok(())
                         }
-                        Err(e) => Err(e),
+                        Err(e) => Err(e.description().to_owned()),
                     }
                 }
                 SqlQuery::Select(sq) => {
@@ -133,7 +135,7 @@ fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Re
                                 // }
                             }
                         }
-                        Err(e) => return Err(e),
+                        Err(e) => return Err(e.description().to_owned()),
                     }
 
                     Ok(())
@@ -172,31 +174,33 @@ fn handle_execute(backend: &mut Backend, s: nom_sql::ExecuteStatement) -> Result
 }
 
 fn main() {
-    use clap::{Arg, App};
+    use clap::{App, Arg};
     use std::io::Read;
     use std::fs::File;
 
     let matches = App::new("pan")
         .version("0.0.1")
         .about("Interactive Soup shell.")
-        .arg(Arg::with_name("recipe")
-                 .short("r")
-                 .long("recipe")
-                 .takes_value(true)
-                 .help("Recipe file to start from."))
-        .arg(Arg::with_name("nopartial")
-                 .long("no-partial-materialization")
-                 .help("Disable partial materialization."))
-        .arg(Arg::with_name("noshard")
-                 .long("no-sharding")
-                 .help("Disable sharding"))
+        .arg(
+            Arg::with_name("recipe")
+                .short("r")
+                .long("recipe")
+                .takes_value(true)
+                .help("Recipe file to start from."),
+        )
+        .arg(
+            Arg::with_name("zk_addr")
+                .long("zookeeper-address")
+                .short("z")
+                .default_value("127.0.0.1:2181")
+                .help("IP:PORT for Zookeeper."),
+        )
         .arg(Arg::with_name("verbose").long("verbose").short("v"))
         .get_matches();
 
     let start_recipe_file = matches.value_of("recipe");
-    let partial = !matches.is_present("nopartial");
-    let sharding = !matches.is_present("noshard");
     let verbose = matches.is_present("verbose");
+    let zk_addr = matches.value_of("zk_addr").unwrap();
 
     // `()` means no completer is required
     let mut rl = Editor::<()>::new();
@@ -207,24 +211,22 @@ fn main() {
         println!("No previous history.");
     }
 
-    let mut g = distributary::Blender::new();
     let log = if verbose {
         make_logger(slog::Level::Info)
     } else {
         make_logger(slog::Level::Error)
     };
 
-    g.log_with(log.clone());
+    info!(
+        log,
+        "trying to connect to Soup via Zookeeper at {}", zk_addr
+    );
 
-    if !partial {
-        g.disable_partial();
-    }
+    let mut zk = ZookeeperAuthority::new(zk_addr);
+    zk.log_with(log.clone());
+    let g = distributary::ControllerHandle::<ZookeeperAuthority>::new(zk);
 
-    if !sharding {
-        g.disable_sharding();
-    }
-
-    let mut backend = Backend::new(g, distributary::Recipe::blank(Some(log.clone())));
+    let mut backend = Backend::new(g);
 
     match start_recipe_file {
         None => (),
@@ -272,8 +274,8 @@ fn main() {
 
                 // special, Soup-only SHOW GRAPH query
                 if line.trim().to_lowercase() == "show graph;" {
-                    let soup = backend.soup.lock().unwrap();
-                    println!("\n{}\n", *soup);
+                    let g = backend.soup.graphviz();
+                    println!("\n{}\n", g);
                     continue;
                 }
 
