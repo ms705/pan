@@ -31,7 +31,10 @@ impl Backend {
 
     pub fn migrate(&mut self, line: &str) -> Result<ActivationResult, RpcError> {
         // try to add query to recipe
-        self.soup.extend_recipe(line.to_owned())
+        let ar = self.soup.extend_recipe(line.to_owned())?;
+        self.inputs = self.soup.inputs();
+        self.outputs = self.soup.outputs();
+        Ok(ar)
     }
 
     pub fn put(&mut self, kind: &str, data: &[DataType]) -> Result<(), String> {
