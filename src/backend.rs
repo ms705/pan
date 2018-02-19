@@ -90,23 +90,6 @@ impl Backend {
         }
     }
 
-    // pub fn get<I>(&mut self, kind: &str, key: I) -> Result<Datas, String>
-    //     where I: Into<DataType>
-    // {
-    //     let get_fn = self.getters
-    //         .entry(String::from(kind))
-    //         .or_insert(self.soup
-    //                        .lock()
-    //                        .unwrap()
-    //                        .get_getter(self.recipe.as_ref().unwrap().node_addr_for(kind)?)
-    //                        .unwrap());
-
-    //     match get_fn(&key.into(), true) {
-    //         Ok(records) => Ok(records),
-    //         Err(_) => Err(format!("GET for {} failed!", kind)),
-    //     }
-    // }
-
     pub fn query_exists(&self, name: &str) -> bool {
         self.queries.contains_key(name)
     }
