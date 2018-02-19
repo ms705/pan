@@ -100,7 +100,7 @@ fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Re
                 SqlQuery::Select(sq) => {
                     // first do a migration to add the query (may be a no-op if we can reuse
                     // existing queries)
-                    match backend.migrate(line) {
+                    match backend.migrate(&format!("QUERY {}: {}", name.unwrap(), line)) {
                         Ok(act_res) => {
                             let params = match sq.where_clause {
                                 None => vec![],
