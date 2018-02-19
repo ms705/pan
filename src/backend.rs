@@ -59,7 +59,9 @@ impl Backend {
 
     pub fn execute_query(&mut self, name: &str, params: &[DataType]) -> Result<Datas, String> {
         if params.len() != 1 {
-            return Err(format!("Only single parameter queries are currently supported"));
+            return Err(format!(
+                "Only single parameter queries are currently supported"
+            ));
         }
 
         let (ref kind, nparams) = *match self.queries.get(name) {
@@ -68,9 +70,11 @@ impl Backend {
         };
 
         if nparams != params.len() {
-            return Err(format!("Wrong number of values: expected {}, got {}",
-                               nparams,
-                               params.len()));
+            return Err(format!(
+                "Wrong number of values: expected {}, got {}",
+                nparams,
+                params.len()
+            ));
         }
 
         let ni = self.outputs

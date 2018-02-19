@@ -32,19 +32,15 @@ fn extract_query_parameters(wc: ConditionExpression) -> Vec<String> {
             params.extend(extract_query_parameters(*ct.left));
             params.extend(extract_query_parameters(*ct.right));
         }
-        ConditionExpression::ComparisonOp(ct) => {
-            match *ct.right {
-                ConditionExpression::Base(ConditionBase::Placeholder) => {
-                    match *ct.left {
-                        ConditionExpression::Base(ConditionBase::Field(f)) => {
-                            params.push(f.name);
-                        }
-                        _ => (),
-                    }
+        ConditionExpression::ComparisonOp(ct) => match *ct.right {
+            ConditionExpression::Base(ConditionBase::Placeholder) => match *ct.left {
+                ConditionExpression::Base(ConditionBase::Field(f)) => {
+                    params.push(f.name);
                 }
                 _ => (),
-            }
-        }
+            },
+            _ => (),
+        },
         _ => panic!(),
     }
     params
@@ -52,13 +48,16 @@ fn extract_query_parameters(wc: ConditionExpression) -> Vec<String> {
 
 fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Result<(), String> {
     let name = line.find(':').map(|i| {
-                                      let name = line[..i].trim();
-                                      line = &line[i + 1..].trim();
-                                      name
-                                  });
+        let name = line[..i].trim();
+        line = &line[i + 1..].trim();
+        name
+    });
 
     if name.is_some() && backend.query_exists(name.as_ref().unwrap()) {
-        return Err(format!("Query with name '{}' already exists", name.unwrap()));
+        return Err(format!(
+            "Query with name '{}' already exists",
+            name.unwrap()
+        ));
     }
 
     match nom_sql::parse_query(line) {
@@ -68,17 +67,19 @@ fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Re
                     // if this is an INSERT query, we want to execute it using
                     // the appropriate mutator
                     let (_, values): (Vec<_>, Vec<_>) = iq.fields.into_iter().unzip();
-                    match backend.put(&iq.table.name,
-                                      values
-                                          .into_iter()
-                                          .map(|v| match v {
-                                                   Literal::String(s) => s.into(),
-                                                   Literal::Integer(i) => i.into(),
-                                                   Literal::Null => DataType::None,
-                                                   _ => unimplemented!(),
-                                               })
-                                          .collect::<Vec<_>>()
-                                          .as_slice()) {
+                    match backend.put(
+                        &iq.table.name,
+                        values
+                            .into_iter()
+                            .map(|v| match v {
+                                Literal::String(s) => s.into(),
+                                Literal::Integer(i) => i.into(),
+                                Literal::Null => DataType::None,
+                                _ => unimplemented!(),
+                            })
+                            .collect::<Vec<_>>()
+                            .as_slice(),
+                    ) {
                         Ok(_) => {
                             info!(log, "Inserted 1 record into \"{}\".\n", iq.table.name);
                             Ok(())
@@ -150,21 +151,23 @@ fn handle_execute(backend: &mut Backend, s: nom_sql::ExecuteStatement) -> Result
     let params: Vec<DataType> = s.values
         .into_iter()
         .map(|l| match l {
-                 Literal::Integer(i) => i.into(),
-                 Literal::String(s) => s.into(),
-                 _ => unimplemented!(),
-             })
+            Literal::Integer(i) => i.into(),
+            Literal::String(s) => s.into(),
+            _ => unimplemented!(),
+        })
         .collect();
 
     match backend.execute_query(&s.table.name, &params) {
         Ok(qres) => {
             let count = qres.len();
             for r in qres {
-                println!("{}",
-                         r.into_iter()
-                             .map(|c| format!("{}", c))
-                             .collect::<Vec<_>>()
-                             .join(", "));
+                println!(
+                    "{}",
+                    r.into_iter()
+                        .map(|c| format!("{}", c))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
             }
             println!("\nQuery returned {} rows.\n", count);
             Ok(())
@@ -240,15 +243,13 @@ fn main() {
             };
             let mut s = String::new();
             match f.read_to_string(&mut s) {
-                Ok(_) => {
-                    match backend.migrate(&s) {
-                        Ok(_) => (),
-                        Err(e) => {
-                            error!(log, "Failed to apply initial recipe: {}", e);
-                            return;
-                        }
+                Ok(_) => match backend.migrate(&s) {
+                    Ok(_) => (),
+                    Err(e) => {
+                        error!(log, "Failed to apply initial recipe: {}", e);
+                        return;
                     }
-                }
+                },
                 Err(e) => {
                     error!(log, "Failed to read initial recipe: {}", e);
                     return;
