@@ -47,16 +47,16 @@ fn extract_query_parameters(wc: ConditionExpression) -> Vec<String> {
 }
 
 fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Result<(), String> {
-    let name = line.find(':').map(|i| {
+    let explicit_name = line.find(':').map(|i| {
         let name = line[..i].trim();
         line = &line[i + 1..].trim();
         name
     });
 
-    if name.is_some() && backend.query_exists(name.as_ref().unwrap()) {
+    if explicit_name.is_some() && backend.query_exists(explicit_name.as_ref().unwrap()) {
         return Err(format!(
             "Query with name '{}' already exists",
-            name.unwrap()
+            explicit_name.unwrap()
         ));
     }
 
@@ -98,9 +98,14 @@ fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Re
                     }
                 }
                 SqlQuery::Select(sq) => {
+                    let name = match explicit_name {
+                        None => return Err(format!("syntax: NAME: SELECT ...;")),
+                        Some(n) => n.to_owned(),
+                    };
+
                     // first do a migration to add the query (may be a no-op if we can reuse
                     // existing queries)
-                    match backend.migrate(&format!("QUERY {}: {}", name.unwrap(), line)) {
+                    match backend.migrate(&format!("QUERY {}: {}", name, line)) {
                         Ok(act_res) => {
                             let params = match sq.where_clause {
                                 None => vec![],
@@ -109,12 +114,12 @@ fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Re
 
                             assert!(act_res.new_nodes.len() <= 1);
 
+                            if !backend.query_exists(&name) {
+                                backend.add_query(&name, params.len());
+                            }
+
                             for (t, _) in act_res.new_nodes {
                                 info!(log, "Added new query {}({}).\n", t, params.join(", "));
-
-                                if let Some(ref name) = name {
-                                    backend.add_query(name, &t, params.len());
-                                }
 
                                 // // if not a parameterized query, execute
                                 // // XXX(malte): also execute if the query already existed and

@@ -50,8 +50,8 @@ impl Backend {
         })
     }
 
-    pub fn add_query(&mut self, name: &str, kind: &str, num_params: usize) {
-        self.queries.insert(name.into(), (kind.into(), num_params));
+    pub fn add_query(&mut self, name: &str, num_params: usize) {
+        self.queries.insert(name.into(), num_params);
     }
 
     pub fn execute_query(&mut self, name: &str, params: &[DataType]) -> Result<Datas, String> {
@@ -61,10 +61,11 @@ impl Backend {
             ));
         }
 
-        let (ref kind, nparams) = *match self.queries.get(name) {
+        let nparams = *match self.queries.get(name) {
             Some(k) => k,
             None => return Err(format!("Unrecognized query: \"{}\"", name)),
         };
+        let kind = name;
 
         if nparams != params.len() {
             return Err(format!(
