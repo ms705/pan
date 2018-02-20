@@ -190,6 +190,13 @@ fn main() {
         .version("0.0.1")
         .about("Interactive Soup shell.")
         .arg(
+            Arg::with_name("deployment")
+                .long("deployment")
+                .takes_value(true)
+                .required(true)
+                .help("Soup deployment ID to attach to."),
+        )
+        .arg(
             Arg::with_name("recipe")
                 .short("r")
                 .long("recipe")
@@ -208,6 +215,10 @@ fn main() {
 
     let start_recipe_file = matches.value_of("recipe");
     let verbose = matches.is_present("verbose");
+    let deployment = match matches.value_of("deployment") {
+        Some(di) => String::from(di),
+        None => String::new(),
+    };
     let zk_addr = matches.value_of("zk_addr").unwrap();
 
     // `()` means no completer is required
@@ -230,7 +241,7 @@ fn main() {
         "trying to connect to Soup via Zookeeper at {}", zk_addr
     );
 
-    let mut zk = ZookeeperAuthority::new(zk_addr);
+    let mut zk = ZookeeperAuthority::new(&format!("{}/{}", zk_addr, deployment));
     zk.log_with(log.clone());
     let g = distributary::ControllerHandle::<ZookeeperAuthority>::new(zk);
 
