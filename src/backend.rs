@@ -31,10 +31,8 @@ impl Backend {
     pub fn put(&mut self, kind: &str, data: &[DataType]) -> Result<(), String> {
         let soup = &mut self.soup;
         let mut make_mutator = || -> Result<Mutator, String> {
-            let ni = *soup.inputs()
-                .get(kind)
-                .map_or(Err(format!("No table named '{}'", kind)), |m| Ok(m))?;
-            soup.get_mutator(ni).map_err(|e| e.description().to_owned())
+            soup.get_mutator(kind)
+                .map_or(Err(format!("No table named '{}'", kind)), |m| Ok(m))
         };
         // cache the mutator
         let mtr = self.mutators
@@ -77,11 +75,8 @@ impl Backend {
 
         let soup = &mut self.soup;
         let mut make_getter = || -> Result<RemoteGetter, String> {
-            let ni = *soup.outputs()
-                .get(kind)
-                .map_or(Err(format!("No view named '{}'", kind)), |ni| Ok(ni))?;
-            soup.get_getter(ni)
-                .map_or(Err(format!("View named '{}' is lost", kind)), |g| Ok(g))
+            soup.get_getter(kind)
+                .map_or(Err(format!("No view named '{}'", kind)), |g| Ok(g))
         };
         let getter = self.getters
             .entry(kind.to_owned())
