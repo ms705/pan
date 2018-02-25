@@ -146,6 +146,9 @@ fn handle_query(backend: &mut Backend, mut line: &str, log: &slog::Logger) -> Re
 
                     Ok(())
                 }
+                _ => {
+                    return Err("Unsupported query type".to_owned());
+                }
             }
         }
         Err(e) => Err(e.to_string()),
